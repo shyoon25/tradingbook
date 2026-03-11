@@ -57,6 +57,26 @@
       <p id="import-status" class="status"></p>
     </section>
 
+    <section class="card">
+      <h2>Seed With Real Market Data</h2>
+      <form id="market-seed-form" class="filter-form">
+        <label>Start <input type="date" name="start_date" value="2025-09-01" /></label>
+        <label>End <input type="date" name="end_date" /></label>
+        <label>Symbols (comma-separated)
+          <input type="text" name="symbols" value="AAPL,MSFT,NVDA,TSLA,AMZN,META,SPY,QQQ" />
+        </label>
+        <label>Max Trades/Day
+          <input type="number" min="1" max="10" name="max_trades_per_day" value="2" />
+        </label>
+        <label class="check-row">
+          <input type="checkbox" name="clear_existing" />
+          Clear existing trades first
+        </label>
+        <button type="submit">Seed Real Data</button>
+      </form>
+      <p id="market-seed-status" class="status"></p>
+    </section>
+
     <section class="stats-grid" id="stats-grid"></section>
 
     <section class="card">
@@ -263,6 +283,29 @@
         status.textContent = err.message;
       } finally {
         e.target.value = '';
+      }
+    });
+
+    document.getElementById('market-seed-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('market-seed-status');
+      const formData = new FormData(e.target);
+      const payload = Object.fromEntries(formData.entries());
+      payload.clear_existing = formData.get('clear_existing') === 'on';
+
+      try {
+        status.textContent = 'Seeding from market data...';
+        const res = await fetch('/api/seed/market', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Market seed failed');
+        status.textContent = `Seeded ${data.seeded} market-based trades (${data.symbols.join(', ')}).`;
+        await refresh();
+      } catch (err) {
+        status.textContent = err.message;
       }
     });
 

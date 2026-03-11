@@ -68,6 +68,13 @@ label {
   font-size: 0.9rem;
 }
 
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 24px;
+}
+
 input, select, button {
   border: 1px solid var(--border);
   border-radius: 8px;

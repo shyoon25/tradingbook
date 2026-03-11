@@ -8,6 +8,7 @@ Simple Flask + SQLite trade journal with stats, equity curve, drawdown, and CSV 
 - Metrics: win rate, net P&L, profit factor, avg R multiple
 - Equity + drawdown chart
 - CSV import/export
+- Real-market-data seeding from historical daily OHLC (STOOQ)
 
 ## Run
 ```bash
@@ -19,6 +20,11 @@ python app.py
 ```
 
 Open http://127.0.0.1:5001
+
+## Real Market Data Seed
+- Use the `Seed With Real Market Data` section in the UI.
+- Data source: STOOQ historical daily bars (`open/high/low/close`).
+- Requires internet access from the machine running Flask.
 
 ## CSV Import Columns
 Required:
