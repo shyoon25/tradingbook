@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Book</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Trading Book</h1>
+    <p>Journal trades, track performance, and export your records.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Add Trade</h2>
+      <form id="trade-form" class="grid-form">
+        <label>Date <input type="date" name="trade_date" required /></label>
+        <label>Symbol <input type="text" name="symbol" placeholder="AAPL" required /></label>
+        <label>Side
+          <select name="side" required>
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </label>
+        <label>Entry <input type="number" step="0.0001" name="entry_price" required /></label>
+        <label>Exit <input type="number" step="0.0001" name="exit_price" required /></label>
+        <label>Qty <input type="number" step="0.0001" name="quantity" required /></label>
+        <label>Fees <input type="number" step="0.0001" name="fees" value="0" /></label>
+        <label>Setup <input type="text" name="setup_tag" placeholder="Breakout" /></label>
+        <label>Risk ($) <input type="number" step="0.0001" name="risk_amount" /></label>
+        <label class="full">Notes <input type="text" name="notes" placeholder="Context and mistakes" /></label>
+        <button type="submit">Add Trade</button>
+      </form>
+      <p id="form-status" class="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Filters</h2>
+      <form id="filter-form" class="filter-form">
+        <label>Start <input type="date" name="start_date" /></label>
+        <label>End <input type="date" name="end_date" /></label>
+        <label>Symbol <input type="text" name="symbol" placeholder="AAPL" /></label>
+        <label>Setup <input type="text" name="setup_tag" placeholder="Breakout" /></label>
+        <button type="submit">Apply</button>
+        <button type="button" id="clear-filters">Clear</button>
+      </form>
+      <div class="actions">
+        <button id="export-csv">Export CSV</button>
+        <label class="import-btn">
+          Import CSV
+          <input id="import-csv" type="file" accept=".csv" />
+        </label>
+      </div>
+      <p id="import-status" class="status"></p>
+    </section>
+
+    <section class="stats-grid" id="stats-grid"></section>
+
+    <section class="card">
+      <h2>Equity & Drawdown</h2>
+      <canvas id="equity-chart"></canvas>
+    </section>
+
+    <section class="card">
+      <h2>Trades</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>Qty</th>
+              <th>Fees</th>
+              <th>P&amp;L</th>
+              <th>R</th>
+              <th>Setup</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      filters: {},
+      chart: null,
+    };
+
+    const moneyFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+    const numFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+
+    function queryString() {
+      const params = new URLSearchParams();
+      Object.entries(state.filters).forEach(([k, v]) => {
+        if (v) params.set(k, v);
+      });
+      return params.toString() ? `?${params.toString()}` : '';
+    }
+
+    async function loadStats() {
+      const res = await fetch(`/api/stats${queryString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load stats');
+
+      const stats = [
+        ['Total Trades', data.total_trades],
+        ['Win Rate', `${numFmt.format(data.win_rate)}%`],
+        ['Net P&L', moneyFmt.format(data.net_pnl)],
+        ['Avg P&L', moneyFmt.format(data.avg_pnl)],
+        ['Gross Profit', moneyFmt.format(data.gross_profit)],
+        ['Gross Loss', moneyFmt.format(data.gross_loss)],
+        ['Profit Factor', data.profit_factor == null ? 'N/A' : numFmt.format(data.profit_factor)],
+        ['Avg R Multiple', data.avg_r_multiple == null ? 'N/A' : numFmt.format(data.avg_r_multiple)],
+      ];
+
+      const container = document.getElementById('stats-grid');
+      container.innerHTML = stats
+        .map(([label, value]) => `<article class="stat"><h3>${label}</h3><p>${value}</p></article>`)
+        .join('');
+    }
+
+    async function loadTrades() {
+      const res = await fetch(`/api/trades${queryString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load trades');
+
+      const tbody = document.getElementById('trades-body');
+      tbody.innerHTML = data.trades.map((t) => {
+        const pnlClass = t.pnl > 0 ? 'pnl-pos' : t.pnl < 0 ? 'pnl-neg' : '';
+        return `
+          <tr>
+            <td>${t.trade_date}</td>
+            <td>${t.symbol}</td>
+            <td>${t.side}</td>
+            <td>${numFmt.format(t.entry_price)}</td>
+            <td>${numFmt.format(t.exit_price)}</td>
+            <td>${numFmt.format(t.quantity)}</td>
+            <td>${moneyFmt.format(t.fees)}</td>
+            <td class="${pnlClass}">${moneyFmt.format(t.pnl)}</td>
+            <td>${t.r_multiple == null ? 'N/A' : numFmt.format(t.r_multiple)}</td>
+            <td>${t.setup_tag || ''}</td>
+            <td>${t.notes || ''}</td>
+            <td><button data-id="${t.id}" class="danger">Delete</button></td>
+          </tr>
+        `;
+      }).join('');
+
+      tbody.querySelectorAll('button[data-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-id');
+          const res = await fetch(`/api/trades/${id}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const data = await res.json();
+            alert(data.error || 'Failed to delete trade');
+            return;
+          }
+          await refresh();
+        });
+      });
+    }
+
+    async function loadCurve() {
+      const res = await fetch(`/api/equity${queryString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load equity curve');
+
+      const labels = data.curve.map((p, idx) => `${p.trade_date} #${idx + 1}`);
+      const equityData = data.curve.map((p) => p.equity);
+      const drawdownData = data.curve.map((p) => p.drawdown);
+
+      const ctx = document.getElementById('equity-chart').getContext('2d');
+      if (state.chart) state.chart.destroy();
+      state.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Equity',
+              data: equityData,
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37,99,235,0.15)',
+              tension: 0.2,
+            },
+            {
+              label: 'Drawdown',
+              data: drawdownData,
+              borderColor: '#ef4444',
+              backgroundColor: 'rgba(239,68,68,0.12)',
+              tension: 0.2,
+            },
+          ],
+        },
+      });
+    }
+
+    async function refresh() {
+      await Promise.all([loadStats(), loadTrades(), loadCurve()]);
+    }
+
+    document.getElementById('trade-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('form-status');
+      const form = new FormData(e.target);
+      const payload = Object.fromEntries(form.entries());
+      try {
+        const res = await fetch('/api/trades', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add trade');
+        status.textContent = 'Trade added.';
+        e.target.reset();
+        await refresh();
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    });
+
+    document.getElementById('filter-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      state.filters = Object.fromEntries(form.entries());
+      await refresh();
+    });
+
+    document.getElementById('clear-filters').addEventListener('click', async () => {
+      document.getElementById('filter-form').reset();
+      state.filters = {};
+      await refresh();
+    });
+
+    document.getElementById('export-csv').addEventListener('click', () => {
+      window.location.href = `/api/export.csv${queryString()}`;
+    });
+
+    document.getElementById('import-csv').addEventListener('change', async (e) => {
+      const status = document.getElementById('import-status');
+      const file = e.target.files[0];
+      if (!file) return;
+      const body = new FormData();
+      body.append('file', file);
+
+      try {
+        const res = await fetch('/api/import.csv', { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Import failed');
+        status.textContent = `Imported ${data.imported} trades.`;
+        await refresh();
+      } catch (err) {
+        status.textContent = err.message;
+      } finally {
+        e.target.value = '';
+      }
+    });
+
+    refresh().catch((err) => {
+      alert(err.message);
+    });
+  </script>
+</body>
+</html>
